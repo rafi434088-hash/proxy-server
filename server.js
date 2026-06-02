@@ -1,8 +1,14 @@
 const net = require('net');
 const http = require('http');
-const { URL } = require('url');
 
 const server = http.createServer((req, res) => {
+  // Health check של Render
+  if (req.url === '/' || !req.url.startsWith('http')) {
+    res.writeHead(200);
+    res.end('Proxy OK');
+    return;
+  }
+
   const targetUrl = new URL(req.url);
   
   const options = {
@@ -50,9 +56,7 @@ server.on('connect', (req, clientSocket, head) => {
 
   serverSocket.on('error', (err) => {
     console.error('Server socket error:', err.message);
-    clientSocket.write(
-      'HTTP/1.1 502 Bad Gateway\r\n\r\n'
-    );
+    clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
     clientSocket.destroy();
   });
 
@@ -60,10 +64,6 @@ server.on('connect', (req, clientSocket, head) => {
     console.error('Client socket error:', err.message);
     serverSocket.destroy();
   });
-});
-
-server.on('error', (err) => {
-  console.error('Server error:', err.message);
 });
 
 const PORT = process.env.PORT || 3000;
