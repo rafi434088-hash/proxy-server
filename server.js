@@ -1,38 +1,72 @@
 const net = require('net');
 const http = require('http');
-const url = require('url');
+const { URL } = require('url');
 
 const server = http.createServer((req, res) => {
-  // HTTP רגיל
-  const options = url.parse(req.url);
+  const targetUrl = new URL(req.url);
+  
+  const options = {
+    hostname: targetUrl.hostname,
+    port: targetUrl.port || 80,
+    path: targetUrl.pathname + targetUrl.search,
+    method: req.method,
+    headers: req.headers
+  };
+
   const proxy = http.request(options, (proxyRes) => {
     res.writeHead(proxyRes.statusCode, proxyRes.headers);
     proxyRes.pipe(res);
   });
-  req.pipe(proxy);
+
   proxy.on('error', (err) => {
     res.writeHead(500);
     res.end(err.message);
   });
+
+  req.pipe(proxy);
 });
 
-// HTTPS tunneling - זה מה שחסר בפרוקסי הישן
+// HTTPS CONNECT tunneling
 server.on('connect', (req, clientSocket, head) => {
-  const { hostname, port } = url.parse(`https://${req.url}`);
-  
-  const serverSocket = net.connect(port || 443, hostname, () => {
-    clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-    serverSocket.write(head);
+  const [hostname, port] = req.url.split(':');
+  const targetPort = parseInt(port) || 443;
+
+  console.log(`CONNECT ${hostname}:${targetPort}`);
+
+  const serverSocket = net.createConnection(targetPort, hostname, () => {
+    clientSocket.write(
+      'HTTP/1.1 200 Connection Established\r\n' +
+      'Proxy-agent: Node-Proxy\r\n' +
+      '\r\n'
+    );
+    
+    if (head && head.length > 0) {
+      serverSocket.write(head);
+    }
+    
     serverSocket.pipe(clientSocket);
     clientSocket.pipe(serverSocket);
   });
 
   serverSocket.on('error', (err) => {
-    clientSocket.end();
+    console.error('Server socket error:', err.message);
+    clientSocket.write(
+      'HTTP/1.1 502 Bad Gateway\r\n\r\n'
+    );
+    clientSocket.destroy();
+  });
+
+  clientSocket.on('error', (err) => {
+    console.error('Client socket error:', err.message);
+    serverSocket.destroy();
   });
 });
 
+server.on('error', (err) => {
+  console.error('Server error:', err.message);
+});
+
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Proxy running on port ${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Proxy server running on port ${PORT}`);
 });
