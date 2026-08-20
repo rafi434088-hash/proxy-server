@@ -1,0 +1,62 @@
+name: Chrome GUI with Xpra
+
+on:
+  workflow_dispatch:
+
+jobs:
+  chrome:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install packages
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            chromium-browser \
+            xpra \
+            xvfb \
+            wget
+
+      - name: Install Cloudflared
+        run: |
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared-linux-amd64.deb
+
+      - name: Start Xpra
+        run: |
+          xpra start :100 \
+            --bind-tcp=0.0.0.0:14500 \
+            --html=on \
+            --daemon=yes \
+            --exit-with-children \
+            --encoding=h264 \
+            --quality=50 \
+            --start-child="chromium-browser \
+              --no-sandbox \
+              --disable-dev-shm-usage \
+              --disable-extensions \
+              --disable-sync \
+              --disable-background-networking \
+              --disable-background-timer-throttling \
+              --disable-renderer-backgrounding \
+              --disable-component-update \
+              --disable-features=Translate,BackForwardCache \
+              --no-first-run \
+              --no-default-browser-check \
+              --renderer-process-limit=2 \
+              --window-size=854,480"
+
+      - name: Start Cloudflare Tunnel
+        run: |
+          cloudflared tunnel \
+            --url http://localhost:14500 \
+            > tunnel.log 2>&1 &
+
+          sleep 10
+
+          echo "Tunnel URL:"
+          grep -o "https://[-a-zA-Z0-9.]*trycloudflare.com" tunnel.log || true
+
+      - name: Keep Alive
+        run: |
+          sleep 21600
